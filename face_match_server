@@ -1,0 +1,42 @@
+from flask import Flask, request, jsonify
+import cv2
+import numpy as np
+import base64
+
+app = Flask(__name__)
+
+# Load Haar Cascade
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Load reference image to match (update path as needed)
+reference_img = cv2.imread('reference.jpg', cv2.IMREAD_GRAYSCALE)
+ref_faces = face_cascade.detectMultiScale(reference_img, scaleFactor=1.1, minNeighbors=5)
+
+@app.route('/face_match', methods=['POST'])
+def face_match():
+    data = request.get_json()
+    img_data = base64.b64decode(data['image'])
+    nparr = np.frombuffer(img_data, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+
+    match_found = False
+    for (x, y, w, h) in faces:
+        face_roi = gray[y:y+h, x:x+w]
+        for (rx, ry, rw, rh) in ref_faces:
+            ref_roi = reference_img[ry:ry+rh, rx:rx+rw]
+            # Simple comparison using histogram correlation
+            if face_roi.shape == ref_roi.shape:
+                corr = cv2.compareHist(cv2.calcHist([face_roi],[0],None,[256],[0,256]),
+                                      cv2.calcHist([ref_roi],[0],None,[256],[0,256]),
+                                      cv2.HISTCMP_CORREL)
+                if corr > 0.9:
+                    match_found = True
+                    break
+        if match_found:
+            break
+    return ('', 200) if match_found else ('', 400)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
